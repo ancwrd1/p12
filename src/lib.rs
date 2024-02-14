@@ -463,7 +463,7 @@ impl MacData {
         r.read_sequence(|r| {
             let mac = DigestInfo::parse(r.next())?;
             let salt = r.next().read_bytes()?;
-            let iterations = r.read_default(1, |r| r.read_u32())?;
+            let iterations = r.read_optional(|r| r.read_u32())?.unwrap_or(1);
             Ok(MacData {
                 mac,
                 salt,
