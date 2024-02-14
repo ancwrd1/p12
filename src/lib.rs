@@ -530,7 +530,7 @@ impl PFX {
         cert_der: &[u8],
         key_der: &[u8],
         ca_der: Option<&[u8]>,
-        password: &str,
+        password: &BmpString,
         name: &str,
     ) -> Option<PFX> {
         let mut cas = vec![];
@@ -543,9 +543,10 @@ impl PFX {
         cert_der: &[u8],
         key_der: &[u8],
         ca_der_list: &[&[u8]],
-        password: &str,
+        password: &BmpString,
         name: &str,
     ) -> Option<PFX> {
+        let password = &password.0;
         let salt = rand()?.to_vec();
         let encrypted_data =
             pbe_with_sha_and3_key_triple_des_cbc_encrypt(key_der, password, &salt, ITERATIONS)?;
@@ -591,7 +592,7 @@ impl PFX {
                 .write(w.next());
             });
         });
-        let mac_data = MacData::new(&contents, &password);
+        let mac_data = MacData::new(&contents, password);
         Some(PFX {
             version: 3,
             auth_safe: ContentInfo::Data(contents),
@@ -627,7 +628,9 @@ impl PFX {
     pub fn to_der(&self) -> Vec<u8> {
         yasna::construct_der(|w| self.write(w))
     }
-    pub fn bags(&self, password: &str) -> Result<Vec<SafeBag>, ASN1Error> {
+    pub fn bags(&self, password: &BmpString) -> Result<Vec<SafeBag>, ASN1Error> {
+        let password = &password.0;
+
         let data = self
             .auth_safe
             .data(password)
@@ -650,11 +653,11 @@ impl PFX {
         Ok(result)
     }
     //DER-encoded X.509 certificate
-    pub fn cert_bags(&self, password: &str) -> Result<Vec<Vec<u8>>, ASN1Error> {
+    pub fn cert_bags(&self, password: &BmpString) -> Result<Vec<Vec<u8>>, ASN1Error> {
         self.cert_x509_bags(password)
     }
     //DER-encoded X.509 certificate
-    pub fn cert_x509_bags(&self, password: &str) -> Result<Vec<Vec<u8>>, ASN1Error> {
+    pub fn cert_x509_bags(&self, password: &BmpString) -> Result<Vec<Vec<u8>>, ASN1Error> {
         let mut result = vec![];
         for safe_bag in self.bags(password)? {
             if let Some(cert) = safe_bag.bag.get_x509_cert() {
@@ -663,7 +666,7 @@ impl PFX {
         }
         Ok(result)
     }
-    pub fn cert_sdsi_bags(&self, password: &str) -> Result<Vec<String>, ASN1Error> {
+    pub fn cert_sdsi_bags(&self, password: &BmpString) -> Result<Vec<String>, ASN1Error> {
         let mut result = vec![];
         for safe_bag in self.bags(password)? {
             if let Some(cert) = safe_bag.bag.get_sdsi_cert() {
@@ -672,20 +675,20 @@ impl PFX {
         }
         Ok(result)
     }
-    pub fn key_bags(&self, password: &str) -> Result<Vec<Vec<u8>>, ASN1Error> {
+    pub fn key_bags(&self, password: &BmpString) -> Result<Vec<Vec<u8>>, ASN1Error> {
         let mut result = vec![];
         for safe_bag in self.bags(password)? {
-            if let Some(key) = safe_bag.bag.get_key(password) {
+            if let Some(key) = safe_bag.bag.get_key(&password.0) {
                 result.push(key);
             }
         }
         Ok(result)
     }
 
-    pub fn verify_mac(&self, password: &str) -> bool {
+    pub fn verify_mac(&self, password: &BmpString) -> bool {
         if let Some(mac_data) = &self.mac_data {
-            return match self.auth_safe.data(password) {
-                Some(data) => mac_data.verify_mac(&data, &password),
+            return match self.auth_safe.data(&password.0) {
+                Some(data) => mac_data.verify_mac(&data, &password.0),
                 None => false,
             };
         }
@@ -951,17 +954,25 @@ fn _pbe_pkcs5_scheme_2_encrypt(
     Some(res)
 }
 
-fn bmp_string(s: &str) -> Vec<u8> {
-    let utf16: Vec<u16> = s.encode_utf16().collect();
+#[derive(Debug)]
+pub struct BmpString(Vec<u8>);
 
-    let mut bytes = Vec::with_capacity(utf16.len() * 2 + 2);
-    for c in utf16 {
-        bytes.push((c / 256) as u8);
-        bytes.push((c % 256) as u8);
+impl BmpString {
+    pub fn with_two_trailing_zeros(password: &str) -> Self {
+        let utf16: Vec<u16> = password.encode_utf16().collect();
+
+        let mut bytes = Vec::with_capacity(utf16.len() * 2 + 2);
+        for c in utf16 {
+            bytes.push((c / 256) as u8);
+            bytes.push((c % 256) as u8);
+        }
+        bytes.push(0x00);
+        bytes.push(0x00);
+        Self(bytes)
     }
-    bytes.push(0x00);
-    bytes.push(0x00);
-    bytes
+    pub fn empty_without_trailing_zeros() -> Self {
+        Self(Vec::new())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1242,19 +1253,20 @@ fn test_create_p12() {
     fcert.read_to_end(&mut cert).unwrap();
     let mut key = vec![];
     fkey.read_to_end(&mut key).unwrap();
-    let p12 = PFX::new(&cert, &key, Some(&ca), "changeit", "look")
+    let password = &BmpString::with_two_trailing_zeros("changeit");
+    let p12 = PFX::new(&cert, &key, Some(&ca), password, "look")
         .unwrap()
         .to_der();
 
     let pfx = PFX::parse(&p12).unwrap();
 
-    let keys = pfx.key_bags("changeit").unwrap();
+    let keys = pfx.key_bags(password).unwrap();
     assert_eq!(keys[0], key);
 
-    let certs = pfx.cert_x509_bags("changeit").unwrap();
+    let certs = pfx.cert_x509_bags(password).unwrap();
     assert_eq!(certs[0], cert);
     assert_eq!(certs[1], ca);
-    assert!(pfx.verify_mac("changeit"));
+    assert!(pfx.verify_mac(password));
 
     let mut fp12 = File::create("test.p12").unwrap();
     fp12.write_all(&p12).unwrap();
@@ -1271,16 +1283,18 @@ fn test_create_p12_without_password() {
     let mut cert = vec![];
     fcert.read_to_end(&mut cert).unwrap();
 
-    let p12 = PFX::new(&cert, &[], Some(&ca), "", "look")
+    let password = &BmpString::with_two_trailing_zeros("changeit");
+
+    let p12 = PFX::new(&cert, &[], Some(&ca), password, "look")
         .unwrap()
         .to_der();
 
     let pfx = PFX::parse(&p12).unwrap();
 
-    let certs = pfx.cert_x509_bags("").unwrap();
+    let certs = pfx.cert_x509_bags(password).unwrap();
     assert_eq!(certs[0], cert);
     assert_eq!(certs[1], ca);
-    assert!(pfx.verify_mac(""));
+    assert!(pfx.verify_mac(password));
 
     let mut fp12 = File::create("test.p12").unwrap();
     fp12.write_all(&p12).unwrap();
@@ -1288,9 +1302,9 @@ fn test_create_p12_without_password() {
 
 #[test]
 fn test_bmp_string() {
-    let value = bmp_string("Beavis");
+    let value = BmpString::with_two_trailing_zeros("Beavis");
     assert!(
-        value
+        value.0
             == [0x00, 0x42, 0x00, 0x65, 0x00, 0x61, 0x00, 0x76, 0x00, 0x69, 0x00, 0x73, 0x00, 0x00]
     )
 }
@@ -1298,11 +1312,13 @@ fn test_bmp_string() {
 #[test]
 fn test_pbepkcs12sha1() {
     use hex_literal::hex;
+    let pass = BmpString::with_two_trailing_zeros("");
+    assert_eq!(&pass.0, &vec![0, 0]);
     let salt = hex!("9af4702958a8e95c");
     let iterations = 2048;
     let id = 1;
     let size = 24;
-    let result = pbepkcs12sha1("", &salt, iterations, id, size);
+    let result = pbepkcs12sha1(&pass.0, &salt, iterations, id, size);
     let res = hex!("c2294aa6d02930eb5ce9c329eccb9aee1cb136baea746557");
     assert_eq!(result, res);
 }
@@ -1310,11 +1326,13 @@ fn test_pbepkcs12sha1() {
 #[test]
 fn test_pbepkcs12sha1_2() {
     use hex_literal::hex;
+    let pass = BmpString::with_two_trailing_zeros("");
+    assert_eq!(&pass.0, &vec![0, 0]);
     let salt = hex!("9af4702958a8e95c");
     let iterations = 2048;
     let id = 2;
     let size = 8;
-    let result = pbepkcs12sha1("", &salt, iterations, id, size);
+    let result = pbepkcs12sha1(&pass.0, &salt, iterations, id, size);
     let res = hex!("8e9f8fc7664378bc");
     assert_eq!(result, res);
 }
