@@ -1298,13 +1298,11 @@ fn test_bmp_string() {
 #[test]
 fn test_pbepkcs12sha1() {
     use hex_literal::hex;
-    let pass = bmp_string("");
-    assert_eq!(pass, vec![0, 0]);
     let salt = hex!("9af4702958a8e95c");
     let iterations = 2048;
     let id = 1;
     let size = 24;
-    let result = pbepkcs12sha1(&pass, &salt, iterations, id, size);
+    let result = pbepkcs12sha1("", &salt, iterations, id, size);
     let res = hex!("c2294aa6d02930eb5ce9c329eccb9aee1cb136baea746557");
     assert_eq!(result, res);
 }
@@ -1312,13 +1310,11 @@ fn test_pbepkcs12sha1() {
 #[test]
 fn test_pbepkcs12sha1_2() {
     use hex_literal::hex;
-    let pass = bmp_string("");
-    assert_eq!(pass, vec![0, 0]);
     let salt = hex!("9af4702958a8e95c");
     let iterations = 2048;
     let id = 2;
     let size = 8;
-    let result = pbepkcs12sha1(&pass, &salt, iterations, id, size);
+    let result = pbepkcs12sha1("", &salt, iterations, id, size);
     let res = hex!("8e9f8fc7664378bc");
     assert_eq!(result, res);
 }
