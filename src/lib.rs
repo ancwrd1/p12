@@ -86,7 +86,7 @@ impl EncryptedContentInfo {
         })
     }
 
-    pub fn data(&self, password: &str) -> Option<Vec<u8>> {
+    pub fn data(&self, password: &[u8]) -> Option<Vec<u8>> {
         self.content_encryption_algorithm
             .decrypt_pbe(&self.encrypted_content, password)
     }
@@ -104,7 +104,7 @@ impl EncryptedContentInfo {
         yasna::construct_der(|w| self.write(w))
     }
 
-    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &str) -> Option<EncryptedContentInfo> {
+    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &[u8]) -> Option<EncryptedContentInfo> {
         let data = yasna::construct_der(|w| {
             w.write_sequence_of(|w| {
                 for sb in safe_bags {
@@ -144,7 +144,7 @@ impl EncryptedData {
             })
         })
     }
-    pub fn data(&self, password: &str) -> Option<Vec<u8>> {
+    pub fn data(&self, password: &[u8]) -> Option<Vec<u8>> {
         self.encrypted_content_info.data(password)
     }
     pub fn write(&self, w: DERWriter) {
@@ -153,7 +153,7 @@ impl EncryptedData {
             self.encrypted_content_info.write(w.next());
         })
     }
-    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &str) -> Option<Self> {
+    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &[u8]) -> Option<Self> {
         let encrypted_content_info = EncryptedContentInfo::from_safe_bags(safe_bags, password)?;
         Some(EncryptedData {
             encrypted_content_info,
@@ -196,7 +196,7 @@ impl ContentInfo {
             }))
         })
     }
-    pub fn data(&self, password: &str) -> Option<Vec<u8>> {
+    pub fn data(&self, password: &[u8]) -> Option<Vec<u8>> {
         match self {
             ContentInfo::Data(data) => Some(data.to_owned()),
             ContentInfo::EncryptedData(encrypted) => encrypted.data(password),
@@ -378,7 +378,7 @@ impl AlgorithmIdentifier {
             }))
         })
     }
-    pub fn decrypt_pbe(&self, ciphertext: &[u8], password: &str) -> Option<Vec<u8>> {
+    pub fn decrypt_pbe(&self, ciphertext: &[u8], password: &[u8]) -> Option<Vec<u8>> {
         match self {
             AlgorithmIdentifier::Sha1 => None,
             AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(param) => {
@@ -480,7 +480,7 @@ impl MacData {
         })
     }
 
-    pub fn verify_mac(&self, data: &[u8], password: &str) -> bool {
+    pub fn verify_mac(&self, data: &[u8], password: &[u8]) -> bool {
         debug_assert_eq!(self.mac.digest_algorithm, AlgorithmIdentifier::Sha1);
         let key = pbepkcs12sha1(password, &self.salt, self.iterations as u64, 3, 20);
         let mac = HmacSha1::new_from_slice(&key);
@@ -492,7 +492,7 @@ impl MacData {
         mac.verify_slice(&self.mac.digest).is_ok()
     }
 
-    pub fn new(data: &[u8], password: &str) -> MacData {
+    pub fn new(data: &[u8], password: &[u8]) -> MacData {
         let salt = rand().unwrap();
         let key = pbepkcs12sha1(password, &salt, ITERATIONS, 3, 20);
         let mut mac = HmacSha1::new_from_slice(&key).unwrap();
@@ -707,8 +707,7 @@ fn pbepkcs12sha1core(d: &[u8], i: &[u8], a: &mut Vec<u8>, iterations: u64) -> Ve
 }
 
 #[allow(clippy::many_single_char_names)]
-fn pbepkcs12sha1(pass: &str, salt: &[u8], iterations: u64, id: u8, size: u64) -> Vec<u8> {
-    let pass = bmp_string(pass);
+fn pbepkcs12sha1(pass: &[u8], salt: &[u8], iterations: u64, id: u8, size: u64) -> Vec<u8> {
     const U: u64 = 160 / 8;
     const V: u64 = 512 / 8;
     let r: u64 = iterations;
@@ -748,7 +747,7 @@ fn pbepkcs12sha1(pass: &str, salt: &[u8], iterations: u64, id: u8, size: u64) ->
 
 fn pbe_with_sha1_and40_bit_rc2_cbc(
     data: &[u8],
-    password: &str,
+    password: &[u8],
     salt: &[u8],
     iterations: u64,
 ) -> Option<Vec<u8>> {
@@ -763,7 +762,7 @@ fn pbe_with_sha1_and40_bit_rc2_cbc(
 
 fn pbe_with_sha1_and40_bit_rc2_cbc_encrypt(
     data: &[u8],
-    password: &str,
+    password: &[u8],
     salt: &[u8],
     iterations: u64,
 ) -> Option<Vec<u8>> {
@@ -778,7 +777,7 @@ fn pbe_with_sha1_and40_bit_rc2_cbc_encrypt(
 
 fn pbe_with_sha_and3_key_triple_des_cbc(
     data: &[u8],
-    password: &str,
+    password: &[u8],
     salt: &[u8],
     iterations: u64,
 ) -> Option<Vec<u8>> {
@@ -793,7 +792,7 @@ fn pbe_with_sha_and3_key_triple_des_cbc(
 
 fn pbe_with_sha_and3_key_triple_des_cbc_encrypt(
     data: &[u8],
-    password: &str,
+    password: &[u8],
     salt: &[u8],
     iterations: u64,
 ) -> Option<Vec<u8>> {
@@ -806,7 +805,7 @@ fn pbe_with_sha_and3_key_triple_des_cbc_encrypt(
     Some(tdes.encrypt_padded_vec_mut::<Pkcs7>(data))
 }
 
-fn pbe_pkcs5_scheme_2(data: &[u8], password: &str, param: &Pkcs5Pbes2Params) -> Option<Vec<u8>> {
+fn pbe_pkcs5_scheme_2(data: &[u8], password: &[u8], param: &Pkcs5Pbes2Params) -> Option<Vec<u8>> {
     type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
     type Aes192CbcDec = cbc::Decryptor<aes::Aes192>;
     type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
@@ -827,7 +826,7 @@ fn pbe_pkcs5_scheme_2(data: &[u8], password: &str, param: &Pkcs5Pbes2Params) -> 
     let key = if param.hasher.eq(&OID_HMAC_WITH_SHA256) {
         Pbkdf2
             .hash_password_customized(
-                password.as_bytes(),
+                password,
                 Some(Algorithm::Pbkdf2Sha256.ident()),
                 None,
                 Params {
@@ -841,7 +840,7 @@ fn pbe_pkcs5_scheme_2(data: &[u8], password: &str, param: &Pkcs5Pbes2Params) -> 
     } else if param.hasher.eq(&OID_HMAC_WITH_SHA1) {
         Pbkdf2
             .hash_password_customized(
-                password.as_bytes(),
+                password,
                 Some(Algorithm::Pbkdf2Sha1.ident()),
                 None,
                 Params {
@@ -1039,7 +1038,7 @@ impl EncryptedPrivateKeyInfo {
             w.next().write_bytes(&self.encrypted_data);
         })
     }
-    pub fn decrypt(&self, password: &str) -> Option<Vec<u8>> {
+    pub fn decrypt(&self, password: &[u8]) -> Option<Vec<u8>> {
         self.encryption_algorithm
             .decrypt_pbe(&self.encrypted_data, password)
     }
@@ -1116,7 +1115,7 @@ impl SafeBagKind {
         None
     }
 
-    pub fn get_key(&self, password: &str) -> Option<Vec<u8>> {
+    pub fn get_key(&self, password: &[u8]) -> Option<Vec<u8>> {
         if let SafeBagKind::Pkcs8ShroudedKeyBag(kb) = self {
             return kb.decrypt(password);
         }
