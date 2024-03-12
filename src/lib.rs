@@ -38,6 +38,7 @@ def_oid!(
     [1, 2, 840, 113_549, 1, 12, 1, 3]
 );
 def_oid!(OID_SHA1, [1, 3, 14, 3, 2, 26]);
+def_oid!(OID_SHA256, [2, 16, 840, 1, 101, 3, 4, 2, 1]);
 def_oid!(OID_PBE_WITH_SHA1_AND40_BIT_RC2_CBC, [1, 2, 840, 113_549, 1, 12, 1, 6]);
 def_oid!(OID_KEY_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 1]);
 def_oid!(OID_PKCS8_SHROUDED_KEY_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
@@ -286,6 +287,7 @@ pub struct Pkcs5Pbes2Params {
     pub hasher: ObjectIdentifier,
     pub cipher: ObjectIdentifier,
     pub iv: Vec<u8>,
+    pub key_size: Option<u64>,
 }
 
 impl Pkcs5Pbes2Params {
@@ -293,11 +295,12 @@ impl Pkcs5Pbes2Params {
         r.read_sequence(|r| {
             // parse kdf definition
             let seq_kdf = r.next();
-            let (kdf, salt, iterations, hasher) = seq_kdf.read_sequence(|r| {
+            let (kdf, salt, iterations, key_size, hasher) = seq_kdf.read_sequence(|r| {
                 let kdf_oid = r.next().read_oid()?;
-                let (salt, iterations, hasher_oid) = r.next().read_sequence(|r| {
+                let (salt, iterations, key_size, hasher_oid) = r.next().read_sequence(|r| {
                     let salt = r.next().read_bytes()?;
                     let iterations = r.next().read_u64()?;
+                    let key_size = r.read_optional(|r| r.read_u64())?;
                     let hasher_oid = r
                         .read_optional(|r| {
                             r.read_sequence(|r| {
@@ -308,9 +311,9 @@ impl Pkcs5Pbes2Params {
                         })?
                         .unwrap_or(OID_HMAC_WITH_SHA1.clone());
 
-                    Ok((salt, iterations, hasher_oid))
+                    Ok((salt, iterations, key_size, hasher_oid))
                 })?;
-                Ok((kdf_oid, salt, iterations, hasher_oid))
+                Ok((kdf_oid, salt, iterations, key_size, hasher_oid))
             })?;
 
             // parse cipher definition
@@ -328,6 +331,7 @@ impl Pkcs5Pbes2Params {
                 hasher,
                 cipher,
                 iv,
+                key_size,
             })
         })
     }
@@ -362,6 +366,7 @@ pub struct OtherAlgorithmIdentifier {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlgorithmIdentifier {
     Sha1,
+    Sha256,
     PbewithSHAAnd40BitRC2CBC(Pkcs12PbeParams),
     PbeWithSHAAnd3KeyTripleDESCBC(Pkcs12PbeParams),
     Pkcs5PBES2(Pkcs5Pbes2Params),
@@ -375,6 +380,10 @@ impl AlgorithmIdentifier {
             if algorithm_type == *OID_SHA1 {
                 r.read_optional(|r| r.read_null())?;
                 return Ok(AlgorithmIdentifier::Sha1);
+            }
+            if algorithm_type == *OID_SHA256 {
+                r.read_optional(|r| r.read_null())?;
+                return Ok(AlgorithmIdentifier::Sha256);
             }
             if algorithm_type == *OID_PBE_WITH_SHA1_AND40_BIT_RC2_CBC {
                 let params = Pkcs12PbeParams::parse(r.next())?;
@@ -399,6 +408,7 @@ impl AlgorithmIdentifier {
     pub fn decrypt_pbe(&self, ciphertext: &[u8], password: &BmpString) -> Option<Vec<u8>> {
         match self {
             AlgorithmIdentifier::Sha1 => None,
+            AlgorithmIdentifier::Sha256 => None,
             AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(param) => {
                 pbe_with_sha1_and40_bit_rc2_cbc(ciphertext, password, &param.salt, param.iterations)
             }
@@ -413,6 +423,10 @@ impl AlgorithmIdentifier {
         w.write_sequence(|w| match self {
             AlgorithmIdentifier::Sha1 => {
                 w.next().write_oid(&OID_SHA1);
+                w.next().write_null();
+            }
+            AlgorithmIdentifier::Sha256 => {
+                w.next().write_oid(&OID_SHA256);
                 w.next().write_null();
             }
             AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(p) => {
