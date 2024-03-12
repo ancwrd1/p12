@@ -3,7 +3,7 @@
 //!
 //!
 
-use lazy_static::lazy_static;
+use std::ops::Deref;
 
 use yasna::{models::ObjectIdentifier, ASN1Error, ASN1ErrorKind, BERReader, DERWriter, Tag};
 
@@ -13,6 +13,7 @@ use cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use des::TdesEde3;
 use getrandom::getrandom;
 use hmac::{Hmac, Mac};
+use once_cell::sync::Lazy;
 use password_hash::{PasswordHasher, SaltString};
 use pbkdf2::{Algorithm, Params, Pbkdf2};
 use rc2::Rc2;
@@ -20,40 +21,71 @@ use sha1::{Digest, Sha1};
 
 type HmacSha1 = Hmac<Sha1>;
 
-fn as_oid(s: &'static [u64]) -> ObjectIdentifier {
-    ObjectIdentifier::from_slice(s)
+macro_rules! def_oid {
+    ($name: ident, $oid: expr) => {
+        pub static $name: Lazy<ObjectIdentifier> = Lazy::new(|| ObjectIdentifier::from_slice(&$oid));
+    };
 }
 
-lazy_static! {
-    static ref OID_DATA_CONTENT_TYPE: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
-    static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
-    static ref OID_FRIENDLY_NAME: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 9, 20]);
-    static ref OID_LOCAL_KEY_ID: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 9, 21]);
-    static ref OID_CERT_TYPE_X509_CERTIFICATE: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 9, 22, 1]);
-    static ref OID_CERT_TYPE_SDSI_CERTIFICATE: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 9, 22, 2]);
-    static ref OID_PBE_WITH_SHA_AND3_KEY_TRIPLE_DESCBC: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 3]);
-    static ref OID_SHA1: ObjectIdentifier = as_oid(&[1, 3, 14, 3, 2, 26]);
-    static ref OID_PBE_WITH_SHA1_AND40_BIT_RC2_CBC: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 6]);
-    static ref OID_KEY_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 1]);
-    static ref OID_PKCS8_SHROUDED_KEY_BAG: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
-    static ref OID_CERT_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
-    static ref OID_CRL_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 4]);
-    static ref OID_SECRET_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 5]);
-    static ref OID_SAFE_CONTENTS_BAG: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 6]);
-    static ref OID_PKCS5_PBES2: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 5, 13]);
-    static ref OID_PKCS5_PBKDF2: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 5, 12]);
-    static ref OID_AES256_CBC: ObjectIdentifier = as_oid(&[2, 16, 840, 1, 101, 3, 4, 1, 42]);
-    static ref OID_AES192_CBC: ObjectIdentifier = as_oid(&[2, 16, 840, 1, 101, 3, 4, 1, 22]);
-    static ref OID_AES128_CBC: ObjectIdentifier = as_oid(&[2, 16, 840, 1, 101, 3, 4, 1, 2]);
-    static ref OID_HMAC_WITH_SHA256: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 2, 9]);
-    static ref OID_HMAC_WITH_SHA1: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 2, 7]);
+def_oid!(OID_DATA_CONTENT_TYPE, [1, 2, 840, 113_549, 1, 7, 1]);
+def_oid!(OID_ENCRYPTED_DATA_CONTENT_TYPE, [1, 2, 840, 113_549, 1, 7, 6]);
+def_oid!(OID_FRIENDLY_NAME, [1, 2, 840, 113_549, 1, 9, 20]);
+def_oid!(OID_LOCAL_KEY_ID, [1, 2, 840, 113_549, 1, 9, 21]);
+def_oid!(OID_CERT_TYPE_X509_CERTIFICATE, [1, 2, 840, 113_549, 1, 9, 22, 1]);
+def_oid!(OID_CERT_TYPE_SDSI_CERTIFICATE, [1, 2, 840, 113_549, 1, 9, 22, 2]);
+def_oid!(
+    OID_PBE_WITH_SHA_AND3_KEY_TRIPLE_DESCBC,
+    [1, 2, 840, 113_549, 1, 12, 1, 3]
+);
+def_oid!(OID_SHA1, [1, 3, 14, 3, 2, 26]);
+def_oid!(OID_PBE_WITH_SHA1_AND40_BIT_RC2_CBC, [1, 2, 840, 113_549, 1, 12, 1, 6]);
+def_oid!(OID_KEY_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 1]);
+def_oid!(OID_PKCS8_SHROUDED_KEY_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
+def_oid!(OID_CERT_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
+def_oid!(OID_CRL_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 4]);
+def_oid!(OID_SECRET_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 5]);
+def_oid!(OID_SAFE_CONTENTS_BAG, [1, 2, 840, 113_549, 1, 12, 10, 1, 6]);
+def_oid!(OID_PKCS5_PBES2, [1, 2, 840, 113_549, 1, 5, 13]);
+def_oid!(OID_PKCS5_PBKDF2, [1, 2, 840, 113_549, 1, 5, 12]);
+def_oid!(OID_AES256_CBC, [2, 16, 840, 1, 101, 3, 4, 1, 42]);
+def_oid!(OID_AES192_CBC, [2, 16, 840, 1, 101, 3, 4, 1, 22]);
+def_oid!(OID_AES128_CBC, [2, 16, 840, 1, 101, 3, 4, 1, 2]);
+def_oid!(OID_HMAC_WITH_SHA256, [1, 2, 840, 113_549, 2, 9]);
+def_oid!(OID_HMAC_WITH_SHA1, [1, 2, 840, 113_549, 2, 7]);
+
+#[derive(Debug)]
+pub struct BmpString(Vec<u8>);
+
+impl BmpString {
+    pub fn with_two_trailing_zeros(password: &str) -> Self {
+        let utf16: Vec<u16> = password.encode_utf16().collect();
+
+        let mut bytes = Vec::with_capacity(utf16.len() * 2 + 2);
+        for c in utf16 {
+            bytes.push((c / 256) as u8);
+            bytes.push((c % 256) as u8);
+        }
+        bytes.push(0x00);
+        bytes.push(0x00);
+        Self(bytes)
+    }
+    pub fn empty_without_trailing_zeros() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl AsRef<[u8]> for BmpString {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Deref for BmpString {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 const ITERATIONS: u64 = 2048;
@@ -76,9 +108,7 @@ impl EncryptedContentInfo {
             let content_type = r.next().read_oid()?;
             debug_assert_eq!(content_type, *OID_DATA_CONTENT_TYPE);
             let content_encryption_algorithm = AlgorithmIdentifier::parse(r.next())?;
-            let encrypted_content = r
-                .next()
-                .read_tagged_implicit(Tag::context(0), |r| r.read_bytes())?;
+            let encrypted_content = r.next().read_tagged_implicit(Tag::context(0), |r| r.read_bytes())?;
             Ok(EncryptedContentInfo {
                 content_encryption_algorithm,
                 encrypted_content,
@@ -86,7 +116,7 @@ impl EncryptedContentInfo {
         })
     }
 
-    pub fn data(&self, password: &[u8]) -> Option<Vec<u8>> {
+    pub fn data(&self, password: &BmpString) -> Option<Vec<u8>> {
         self.content_encryption_algorithm
             .decrypt_pbe(&self.encrypted_content, password)
     }
@@ -104,7 +134,7 @@ impl EncryptedContentInfo {
         yasna::construct_der(|w| self.write(w))
     }
 
-    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &[u8]) -> Option<EncryptedContentInfo> {
+    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &BmpString) -> Option<EncryptedContentInfo> {
         let data = yasna::construct_der(|w| {
             w.write_sequence_of(|w| {
                 for sb in safe_bags {
@@ -113,13 +143,11 @@ impl EncryptedContentInfo {
             })
         });
         let salt = rand()?.to_vec();
-        let encrypted_content =
-            pbe_with_sha1_and40_bit_rc2_cbc_encrypt(&data, password, &salt, ITERATIONS)?;
-        let content_encryption_algorithm =
-            AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(Pkcs12PbeParams {
-                salt,
-                iterations: ITERATIONS,
-            });
+        let encrypted_content = pbe_with_sha1_and40_bit_rc2_cbc_encrypt(&data, password, &salt, ITERATIONS)?;
+        let content_encryption_algorithm = AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(Pkcs12PbeParams {
+            salt,
+            iterations: ITERATIONS,
+        });
         Some(EncryptedContentInfo {
             content_encryption_algorithm,
             encrypted_content,
@@ -139,12 +167,10 @@ impl EncryptedData {
             debug_assert_eq!(version, 0);
 
             let encrypted_content_info = EncryptedContentInfo::parse(r.next())?;
-            Ok(EncryptedData {
-                encrypted_content_info,
-            })
+            Ok(EncryptedData { encrypted_content_info })
         })
     }
-    pub fn data(&self, password: &[u8]) -> Option<Vec<u8>> {
+    pub fn data(&self, password: &BmpString) -> Option<Vec<u8>> {
         self.encrypted_content_info.data(password)
     }
     pub fn write(&self, w: DERWriter) {
@@ -153,11 +179,9 @@ impl EncryptedData {
             self.encrypted_content_info.write(w.next());
         })
     }
-    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &[u8]) -> Option<Self> {
+    pub fn from_safe_bags(safe_bags: &[SafeBag], password: &BmpString) -> Option<Self> {
         let encrypted_content_info = EncryptedContentInfo::from_safe_bags(safe_bags, password)?;
-        Some(EncryptedData {
-            encrypted_content_info,
-        })
+        Some(EncryptedData { encrypted_content_info })
     }
 }
 
@@ -190,13 +214,10 @@ impl ContentInfo {
             }
 
             let content = r.next().read_tagged(Tag::context(0), |r| r.read_der())?;
-            Ok(ContentInfo::OtherContext(OtherContext {
-                content_type,
-                content,
-            }))
+            Ok(ContentInfo::OtherContext(OtherContext { content_type, content }))
         })
     }
-    pub fn data(&self, password: &[u8]) -> Option<Vec<u8>> {
+    pub fn data(&self, password: &BmpString) -> Option<Vec<u8>> {
         match self {
             ContentInfo::Data(data) => Some(data.to_owned()),
             ContentInfo::EncryptedData(encrypted) => encrypted.data(password),
@@ -214,18 +235,15 @@ impl ContentInfo {
         match self {
             ContentInfo::Data(data) => w.write_sequence(|w| {
                 w.next().write_oid(&OID_DATA_CONTENT_TYPE);
-                w.next()
-                    .write_tagged(Tag::context(0), |w| w.write_bytes(data))
+                w.next().write_tagged(Tag::context(0), |w| w.write_bytes(data))
             }),
             ContentInfo::EncryptedData(encrypted_data) => w.write_sequence(|w| {
                 w.next().write_oid(&OID_ENCRYPTED_DATA_CONTENT_TYPE);
-                w.next()
-                    .write_tagged(Tag::context(0), |w| encrypted_data.write(w))
+                w.next().write_tagged(Tag::context(0), |w| encrypted_data.write(w))
             }),
             ContentInfo::OtherContext(other) => w.write_sequence(|w| {
                 w.next().write_oid(&other.content_type);
-                w.next()
-                    .write_tagged(Tag::context(0), |w| w.write_der(&other.content))
+                w.next().write_tagged(Tag::context(0), |w| w.write_der(&other.content))
             }),
         }
     }
@@ -378,23 +396,16 @@ impl AlgorithmIdentifier {
             }))
         })
     }
-    pub fn decrypt_pbe(&self, ciphertext: &[u8], password: &[u8]) -> Option<Vec<u8>> {
+    pub fn decrypt_pbe(&self, ciphertext: &[u8], password: &BmpString) -> Option<Vec<u8>> {
         match self {
             AlgorithmIdentifier::Sha1 => None,
             AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(param) => {
                 pbe_with_sha1_and40_bit_rc2_cbc(ciphertext, password, &param.salt, param.iterations)
             }
             AlgorithmIdentifier::PbeWithSHAAnd3KeyTripleDESCBC(param) => {
-                pbe_with_sha_and3_key_triple_des_cbc(
-                    ciphertext,
-                    password,
-                    &param.salt,
-                    param.iterations,
-                )
+                pbe_with_sha_and3_key_triple_des_cbc(ciphertext, password, &param.salt, param.iterations)
             }
-            AlgorithmIdentifier::Pkcs5PBES2(param) => {
-                pbe_pkcs5_scheme_2(ciphertext, password, param)
-            }
+            AlgorithmIdentifier::Pkcs5PBES2(param) => pbe_pkcs5_scheme_2(ciphertext, password, param),
             AlgorithmIdentifier::OtherAlg(_) => None,
         }
     }
@@ -464,11 +475,7 @@ impl MacData {
             let mac = DigestInfo::parse(r.next())?;
             let salt = r.next().read_bytes()?;
             let iterations = r.read_optional(|r| r.read_u32())?.unwrap_or(1);
-            Ok(MacData {
-                mac,
-                salt,
-                iterations,
-            })
+            Ok(MacData { mac, salt, iterations })
         })
     }
 
@@ -480,7 +487,7 @@ impl MacData {
         })
     }
 
-    pub fn verify_mac(&self, data: &[u8], password: &[u8]) -> bool {
+    pub fn verify_mac(&self, data: &[u8], password: &BmpString) -> bool {
         debug_assert_eq!(self.mac.digest_algorithm, AlgorithmIdentifier::Sha1);
         let key = pbepkcs12sha1(password, &self.salt, self.iterations as u64, 3, 20);
         let mac = HmacSha1::new_from_slice(&key);
@@ -492,7 +499,7 @@ impl MacData {
         mac.verify_slice(&self.mac.digest).is_ok()
     }
 
-    pub fn new(data: &[u8], password: &[u8]) -> MacData {
+    pub fn new(data: &[u8], password: &BmpString) -> MacData {
         let salt = rand().unwrap();
         let key = pbepkcs12sha1(password, &salt, ITERATIONS, 3, 20);
         let mut mac = HmacSha1::new_from_slice(&key).unwrap();
@@ -546,10 +553,8 @@ impl PFX {
         password: &BmpString,
         name: &str,
     ) -> Option<PFX> {
-        let password = &password.0;
         let salt = rand()?.to_vec();
-        let encrypted_data =
-            pbe_with_sha_and3_key_triple_des_cbc_encrypt(key_der, password, &salt, ITERATIONS)?;
+        let encrypted_data = pbe_with_sha_and3_key_triple_des_cbc_encrypt(key_der, password, &salt, ITERATIONS)?;
         let param = Pkcs12PbeParams {
             salt,
             iterations: ITERATIONS,
@@ -629,8 +634,6 @@ impl PFX {
         yasna::construct_der(|w| self.write(w))
     }
     pub fn bags(&self, password: &BmpString) -> Result<Vec<SafeBag>, ASN1Error> {
-        let password = &password.0;
-
         let data = self
             .auth_safe
             .data(password)
@@ -678,7 +681,7 @@ impl PFX {
     pub fn key_bags(&self, password: &BmpString) -> Result<Vec<Vec<u8>>, ASN1Error> {
         let mut result = vec![];
         for safe_bag in self.bags(password)? {
-            if let Some(key) = safe_bag.bag.get_key(&password.0) {
+            if let Some(key) = safe_bag.bag.get_key(password) {
                 result.push(key);
             }
         }
@@ -687,8 +690,8 @@ impl PFX {
 
     pub fn verify_mac(&self, password: &BmpString) -> bool {
         if let Some(mac_data) = &self.mac_data {
-            return match self.auth_safe.data(&password.0) {
-                Some(data) => mac_data.verify_mac(&data, &password.0),
+            return match self.auth_safe.data(password) {
+                Some(data) => mac_data.verify_mac(&data, password),
                 None => false,
             };
         }
@@ -745,12 +748,7 @@ fn pbepkcs12sha1(pass: &[u8], salt: &[u8], iterations: u64, id: u8, size: u64) -
     a.iter().take(size as usize).cloned().collect()
 }
 
-fn pbe_with_sha1_and40_bit_rc2_cbc(
-    data: &[u8],
-    password: &[u8],
-    salt: &[u8],
-    iterations: u64,
-) -> Option<Vec<u8>> {
+fn pbe_with_sha1_and40_bit_rc2_cbc(data: &[u8], password: &BmpString, salt: &[u8], iterations: u64) -> Option<Vec<u8>> {
     type Rc2Cbc = Decryptor<Rc2>;
 
     let dk = pbepkcs12sha1(password, salt, iterations, 1, 5);
@@ -762,7 +760,7 @@ fn pbe_with_sha1_and40_bit_rc2_cbc(
 
 fn pbe_with_sha1_and40_bit_rc2_cbc_encrypt(
     data: &[u8],
-    password: &[u8],
+    password: &BmpString,
     salt: &[u8],
     iterations: u64,
 ) -> Option<Vec<u8>> {
@@ -777,7 +775,7 @@ fn pbe_with_sha1_and40_bit_rc2_cbc_encrypt(
 
 fn pbe_with_sha_and3_key_triple_des_cbc(
     data: &[u8],
-    password: &[u8],
+    password: &BmpString,
     salt: &[u8],
     iterations: u64,
 ) -> Option<Vec<u8>> {
@@ -805,7 +803,7 @@ fn pbe_with_sha_and3_key_triple_des_cbc_encrypt(
     Some(tdes.encrypt_padded_vec_mut::<Pkcs7>(data))
 }
 
-fn pbe_pkcs5_scheme_2(data: &[u8], password: &[u8], param: &Pkcs5Pbes2Params) -> Option<Vec<u8>> {
+fn pbe_pkcs5_scheme_2(data: &[u8], password: &BmpString, param: &Pkcs5Pbes2Params) -> Option<Vec<u8>> {
     type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
     type Aes192CbcDec = cbc::Decryptor<aes::Aes192>;
     type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
@@ -876,16 +874,13 @@ fn pbe_pkcs5_scheme_2(data: &[u8], password: &[u8], param: &Pkcs5Pbes2Params) ->
     // decrypt
     let res = if param.cipher.eq(&OID_AES256_CBC) {
         let d = Aes256CbcDec::new(key.as_bytes().into(), param.iv.as_slice().into());
-        let r = d.decrypt_padded_vec_mut::<Pkcs7>(data).ok()?;
-        r
+        d.decrypt_padded_vec_mut::<Pkcs7>(data).ok()?
     } else if param.cipher.eq(&OID_AES192_CBC) {
         let d = Aes192CbcDec::new(key.as_bytes().into(), param.iv.as_slice().into());
-        let r = d.decrypt_padded_vec_mut::<Pkcs7>(data).ok()?;
-        r
+        d.decrypt_padded_vec_mut::<Pkcs7>(data).ok()?
     } else if param.cipher.eq(&OID_AES128_CBC) {
         let d = Aes128CbcDec::new(key.as_bytes().into(), param.iv.as_slice().into());
-        let r = d.decrypt_padded_vec_mut::<Pkcs7>(data).ok()?;
-        r
+        d.decrypt_padded_vec_mut::<Pkcs7>(data).ok()?
     } else {
         return None;
     };
@@ -893,11 +888,7 @@ fn pbe_pkcs5_scheme_2(data: &[u8], password: &[u8], param: &Pkcs5Pbes2Params) ->
     Some(res)
 }
 
-fn _pbe_pkcs5_scheme_2_encrypt(
-    data: &[u8],
-    password: &str,
-    param: &Pkcs5Pbes2Params,
-) -> Option<Vec<u8>> {
+fn _pbe_pkcs5_scheme_2_encrypt(data: &[u8], password: &str, param: &Pkcs5Pbes2Params) -> Option<Vec<u8>> {
     type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
     type Aes192CbcEnc = cbc::Encryptor<aes::Aes192>;
     type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
@@ -936,42 +927,18 @@ fn _pbe_pkcs5_scheme_2_encrypt(
     // encrypt
     let res = if param.cipher.eq(&OID_AES256_CBC) {
         let d = Aes256CbcEnc::new(key.as_bytes().into(), param.iv.as_slice().into());
-        let r = d.encrypt_padded_vec_mut::<Pkcs7>(data);
-        r
+        d.encrypt_padded_vec_mut::<Pkcs7>(data)
     } else if param.hasher.eq(&OID_AES192_CBC) {
         let d = Aes192CbcEnc::new(key.as_bytes().into(), param.iv.as_slice().into());
-        let r = d.encrypt_padded_vec_mut::<Pkcs7>(data);
-        r
+        d.encrypt_padded_vec_mut::<Pkcs7>(data)
     } else if param.hasher.eq(&OID_AES128_CBC) {
         let d = Aes128CbcEnc::new(key.as_bytes().into(), param.iv.as_slice().into());
-        let r = d.encrypt_padded_vec_mut::<Pkcs7>(data);
-        r
+        d.encrypt_padded_vec_mut::<Pkcs7>(data)
     } else {
         return None;
     };
 
     Some(res)
-}
-
-#[derive(Debug)]
-pub struct BmpString(Vec<u8>);
-
-impl BmpString {
-    pub fn with_two_trailing_zeros(password: &str) -> Self {
-        let utf16: Vec<u16> = password.encode_utf16().collect();
-
-        let mut bytes = Vec::with_capacity(utf16.len() * 2 + 2);
-        for c in utf16 {
-            bytes.push((c / 256) as u8);
-            bytes.push((c % 256) as u8);
-        }
-        bytes.push(0x00);
-        bytes.push(0x00);
-        Self(bytes)
-    }
-    pub fn empty_without_trailing_zeros() -> Self {
-        Self(Vec::new())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -989,9 +956,7 @@ impl CertBag {
                 return Ok(CertBag::X509(x509));
             };
             if oid == *OID_CERT_TYPE_SDSI_CERTIFICATE {
-                let sdsi = r
-                    .next()
-                    .read_tagged(Tag::context(0), |r| r.read_ia5_string())?;
+                let sdsi = r.next().read_tagged(Tag::context(0), |r| r.read_ia5_string())?;
                 return Ok(CertBag::SDSI(sdsi));
             }
             Err(ASN1Error::new(ASN1ErrorKind::Invalid))
@@ -1001,13 +966,11 @@ impl CertBag {
         w.write_sequence(|w| match self {
             CertBag::X509(x509) => {
                 w.next().write_oid(&OID_CERT_TYPE_X509_CERTIFICATE);
-                w.next()
-                    .write_tagged(Tag::context(0), |w| w.write_bytes(x509));
+                w.next().write_tagged(Tag::context(0), |w| w.write_bytes(x509));
             }
             CertBag::SDSI(sdsi) => {
                 w.next().write_oid(&OID_CERT_TYPE_SDSI_CERTIFICATE);
-                w.next()
-                    .write_tagged(Tag::context(0), |w| w.write_ia5_string(sdsi));
+                w.next().write_tagged(Tag::context(0), |w| w.write_ia5_string(sdsi));
             }
         })
     }
@@ -1038,9 +1001,8 @@ impl EncryptedPrivateKeyInfo {
             w.next().write_bytes(&self.encrypted_data);
         })
     }
-    pub fn decrypt(&self, password: &[u8]) -> Option<Vec<u8>> {
-        self.encryption_algorithm
-            .decrypt_pbe(&self.encrypted_data, password)
+    pub fn decrypt(&self, password: &BmpString) -> Option<Vec<u8>> {
+        self.encryption_algorithm.decrypt_pbe(&self.encrypted_data, password)
     }
 }
 
@@ -1080,9 +1042,7 @@ impl SafeBagKind {
             return Ok(SafeBagKind::CertBag(CertBag::parse(r)?));
         }
         if bag_id == *OID_PKCS8_SHROUDED_KEY_BAG {
-            return Ok(SafeBagKind::Pkcs8ShroudedKeyBag(
-                EncryptedPrivateKeyInfo::parse(r)?,
-            ));
+            return Ok(SafeBagKind::Pkcs8ShroudedKeyBag(EncryptedPrivateKeyInfo::parse(r)?));
         }
         let bag_value = r.read_der()?;
         Ok(SafeBagKind::OtherBagKind(OtherBag { bag_id, bag_value }))
@@ -1115,7 +1075,7 @@ impl SafeBagKind {
         None
     }
 
-    pub fn get_key(&self, password: &[u8]) -> Option<Vec<u8>> {
+    pub fn get_key(&self, password: &BmpString) -> Option<Vec<u8>> {
         if let SafeBagKind::Pkcs8ShroudedKeyBag(kb) = self {
             return kb.decrypt(password);
         }
@@ -1196,9 +1156,7 @@ impl SafeBag {
         r.read_sequence(|r| {
             let oid = r.next().read_oid()?;
 
-            let bag = r
-                .next()
-                .read_tagged(Tag::context(0), |r| SafeBagKind::parse(r, oid))?;
+            let bag = r.next().read_tagged(Tag::context(0), |r| SafeBagKind::parse(r, oid))?;
 
             let attributes = r
                 .read_optional(|r| r.collect_set_of(PKCS12Attribute::parse))?
@@ -1210,8 +1168,7 @@ impl SafeBag {
     pub fn write(&self, w: DERWriter) {
         w.write_sequence(|w| {
             w.next().write_oid(&self.bag.oid());
-            w.next()
-                .write_tagged(Tag::context(0), |w| self.bag.write(w));
+            w.next().write_tagged(Tag::context(0), |w| self.bag.write(w));
             if !self.attributes.is_empty() {
                 w.next().write_set_of(|w| {
                     for attr in &self.attributes {
@@ -1253,9 +1210,7 @@ fn test_create_p12() {
     let mut key = vec![];
     fkey.read_to_end(&mut key).unwrap();
     let password = &BmpString::with_two_trailing_zeros("changeit");
-    let p12 = PFX::new(&cert, &key, Some(&ca), password, "look")
-        .unwrap()
-        .to_der();
+    let p12 = PFX::new(&cert, &key, Some(&ca), password, "look").unwrap().to_der();
 
     let pfx = PFX::parse(&p12).unwrap();
 
@@ -1284,9 +1239,7 @@ fn test_create_p12_without_password() {
 
     let password = &BmpString::with_two_trailing_zeros("changeit");
 
-    let p12 = PFX::new(&cert, &[], Some(&ca), password, "look")
-        .unwrap()
-        .to_der();
+    let p12 = PFX::new(&cert, &[], Some(&ca), password, "look").unwrap().to_der();
 
     let pfx = PFX::parse(&p12).unwrap();
 
@@ -1302,9 +1255,9 @@ fn test_create_p12_without_password() {
 #[test]
 fn test_bmp_string() {
     let value = BmpString::with_two_trailing_zeros("Beavis");
-    assert!(
-        value.0
-            == [0x00, 0x42, 0x00, 0x65, 0x00, 0x61, 0x00, 0x76, 0x00, 0x69, 0x00, 0x73, 0x00, 0x00]
+    assert_eq!(
+        value.0,
+        [0x00, 0x42, 0x00, 0x65, 0x00, 0x61, 0x00, 0x76, 0x00, 0x69, 0x00, 0x73, 0x00, 0x00]
     )
 }
 
